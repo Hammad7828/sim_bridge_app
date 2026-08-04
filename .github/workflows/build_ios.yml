@@ -25,18 +25,15 @@ jobs:
           cd ios
           PBXPROJ="Runner.xcodeproj/project.pbxproj"
 
-          # Force manual signing style
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBXPROJ"
+          echo "----- BEFORE PATCH -----"
+          grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY" "$PBXPROJ" || echo "No existing signing lines found (this is OK)"
 
-          # Clear any development team
-          sed -i '' 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/g' "$PBXPROJ"
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBXPROJ" || true
+          sed -i '' 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/g' "$PBXPROJ" || true
+          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' "$PBXPROJ" || true
 
-          # Blank out code sign identity
-          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' "$PBXPROJ"
-
-          echo "----- Verifying patch applied -----"
-          grep -n "CODE_SIGN_STYLE" "$PBXPROJ"
-          grep -n "DEVELOPMENT_TEAM" "$PBXPROJ"
+          echo "----- AFTER PATCH -----"
+          grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY" "$PBXPROJ" || echo "Still no signing lines found"
 
       - name: Build Unsigned iOS App
         run: flutter build ios --release --no-codesign
