@@ -22,7 +22,108 @@ class SimBridgeApp extends StatelessWidget {
           surface: Colors.black,
         ),
       ),
-      home: const DialerScreen(),
+      home: const MainShell(),
+    );
+  }
+}
+
+class MainShell extends StatefulWidget {
+  const MainShell({super.key});
+
+  @override
+  State<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<MainShell> {
+  int _selectedIndex = 2; // Default to Keypad tab
+
+  final List<Widget> _screens = const [
+    _PlaceholderTab(title: 'Messages', icon: Icons.chat_bubble_outline),
+    _PlaceholderTab(title: 'Recents', icon: Icons.access_time),
+    DialerScreen(),
+    _PlaceholderTab(title: 'Contacts', icon: Icons.person_outline),
+    _PlaceholderTab(title: 'More', icon: Icons.more_horiz),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: _screens,
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF1C1C1E),
+        selectedItemColor: Colors.blue,
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: true,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Messages',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.access_time),
+            label: 'Recents',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dialpad),
+            label: 'Keypad',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Contacts',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.more_horiz),
+            label: 'More',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaceholderTab extends StatelessWidget {
+  const _PlaceholderTab({required this.title, required this.icon});
+
+  final String title;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 64, color: Colors.grey.shade700),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Coming soon',
+            style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -112,162 +213,158 @@ class _DialerScreenState extends State<DialerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Top Header: SIM carrier status + Android battery
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      children: [
+        // Top Header: SIM carrier status + Android battery
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isSim1Available)
-                        Row(
-                          children: [
-                            const Text('1 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                            const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
-                            const SizedBox(width: 4),
-                            Text(
-                              sim1Carrier,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      if (isSim2Available)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2.0),
-                          child: Row(
-                            children: [
-                              const Text('2 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                              const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
-                              const SizedBox(width: 4),
-                              Text(
-                                sim2Carrier,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
+                  if (isSim1Available)
+                    Row(
+                      children: [
+                        const Text('1 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          sim1Carrier,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Text(
-                        '$androidBattery%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        Icons.battery_full,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Connection Status Banner
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-              color: _isConnected ? Colors.green.shade900 : Colors.red.shade900,
-              child: Text(
-                _statusText,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 11),
-              ),
-            ),
-
-            // Number Display Area
-            Expanded(
-              child: Container(
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _phoneNumber,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w300,
-                          color: Colors.white,
-                        ),
+                      ],
+                    ),
+                  if (isSim2Available)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: Row(
+                        children: [
+                          const Text('2 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            sim2Carrier,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    if (_phoneNumber.isNotEmpty)
-                      IconButton(
-                        onPressed: _onBackspace,
-                        icon: const Icon(Icons.backspace_outlined, color: Colors.grey),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Keypad
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Column(
-                children: [
-                  _buildKeyRow(['1', '2', '3'], ['', 'ABC', 'DEF']),
-                  const SizedBox(height: 16),
-                  _buildKeyRow(['4', '5', '6'], ['GHI', 'JKL', 'MNO']),
-                  const SizedBox(height: 16),
-                  _buildKeyRow(['7', '8', '9'], ['PQRS', 'TUV', 'WXYZ']),
-                  const SizedBox(height: 16),
-                  _buildKeyRow(['*', '0', '#'], ['', '+', '']),
-                  const SizedBox(height: 24),
-
-                  // Circular Call Buttons (dynamic based on SIM 2 availability)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildCircularCallButton(
-                        simLabel: '1',
-                        onTap: () {
-                          // TODO: send DIAL command for SIM 1
-                        },
-                      ),
-                      if (isSim2Available) ...[
-                        const SizedBox(width: 32),
-                        _buildCircularCallButton(
-                          simLabel: '2',
-                          onTap: () {
-                            // TODO: send DIAL command for SIM 2
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 30),
                 ],
               ),
-            ),
-          ],
+              Row(
+                children: [
+                  Text(
+                    '$androidBattery%',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.battery_full,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
+
+        // Connection Status Banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+          color: _isConnected ? Colors.green.shade900 : Colors.red.shade900,
+          child: Text(
+            _statusText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+        ),
+
+        // Number Display Area
+        Expanded(
+          child: Container(
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    _phoneNumber,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.w300,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                if (_phoneNumber.isNotEmpty)
+                  IconButton(
+                    onPressed: _onBackspace,
+                    icon: const Icon(Icons.backspace_outlined, color: Colors.grey),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
+        // Keypad
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Column(
+            children: [
+              _buildKeyRow(['1', '2', '3'], ['', 'ABC', 'DEF']),
+              const SizedBox(height: 16),
+              _buildKeyRow(['4', '5', '6'], ['GHI', 'JKL', 'MNO']),
+              const SizedBox(height: 16),
+              _buildKeyRow(['7', '8', '9'], ['PQRS', 'TUV', 'WXYZ']),
+              const SizedBox(height: 16),
+              _buildKeyRow(['*', '0', '#'], ['', '+', '']),
+              const SizedBox(height: 24),
+
+              // Circular Call Buttons (dynamic based on SIM 2 availability)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildCircularCallButton(
+                    simLabel: '1',
+                    onTap: () {
+                      // TODO: send DIAL command for SIM 1
+                    },
+                  ),
+                  if (isSim2Available) ...[
+                    const SizedBox(width: 32),
+                    _buildCircularCallButton(
+                      simLabel: '2',
+                      onTap: () {
+                        // TODO: send DIAL command for SIM 2
+                      },
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
