@@ -20,33 +20,33 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Force manual signing with no team
+      - name: Generate Flutter iOS build config (no full build)
+        run: flutter build ios --release --no-codesign --config-only
+
+      - name: Build via xcodebuild directly (bypasses Flutter's team check)
         run: |
           cd ios
-          PBXPROJ="Runner.xcodeproj/project.pbxproj"
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
 
-          echo "----- BEFORE PATCH -----"
-          grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY" "$PBXPROJ" || echo "No existing signing lines found (this is OK)"
-
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBXPROJ" || true
-          sed -i '' 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/g' "$PBXPROJ" || true
-          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' "$PBXPROJ" || true
-
-          echo "----- AFTER PATCH -----"
-          grep -n "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY" "$PBXPROJ" || echo "Still no signing lines found"
-
-      - name: Build Unsigned iOS App
-        run: flutter build ios --release --no-codesign
-
-      - name: Verify build output exists
+      - name: Locate built app
         run: |
-          ls -la build/ios/iphoneos/
-          test -d build/ios/iphoneos/Runner.app
+          find ios/build -name "Runner.app" -maxdepth 6
 
       - name: Package unsigned IPA
         run: |
           mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/Runner.app
+          APP_PATH=$(find ios/build -name "Runner.app" -maxdepth 6 | head -n 1)
+          echo "Found app at: $APP_PATH"
+          cp -r "$APP_PATH" Payload/Runner.app
           zip -r sim_bridge_app.ipa Payload
           ls -la sim_bridge_app.ipa
 
