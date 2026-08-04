@@ -40,11 +40,11 @@ class _DialerScreenState extends State<DialerScreen> {
   String _statusText = 'Checking Hotspot Connection...';
   Timer? _networkTimer;
 
-  // States received from Android host (Mock default states until WebSocket payload is active)
+  // States received from Android host
   String sim1Carrier = "Jazz 4G";
   String sim2Carrier = "Jazz";
   bool isSim1Available = true;
-  bool isSim2Available = true; // Set to false to show only 1 circular call button
+  bool isSim2Available = true; // Set false to show only 1 call button
   int androidBattery = 90;
 
   @override
@@ -116,14 +116,13 @@ class _DialerScreenState extends State<DialerScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Network & Battery Bar (Matching Image Header)
+            // Top Header: Carriers & Battery
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
                 mainAxisAlignment: MainAlignment.spaceBetween,
                 crossAxisAlignment: CrossAlignment.start,
                 children: [
-                  // Top Left: Dual SIM Carrier Status
                   Column(
                     crossAxisAlignment: CrossAlignment.start,
                     children: [
@@ -164,8 +163,6 @@ class _DialerScreenState extends State<DialerScreen> {
                         ),
                     ],
                   ),
-
-                  // Top Right: Android Host Battery Status
                   Row(
                     children: [
                       Text(
@@ -177,15 +174,10 @@ class _DialerScreenState extends State<DialerScreen> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      RotatedBox(
-                        quarterTurns: 1,
-                        child: Icon(
-                          androidBattery > 20
-                              ? Icons.battery_full
-                              : Icons.battery_alert,
-                          color: Colors.white,
-                          size: 20,
-                        ),
+                      const Icon(
+                        Icons.battery_full,
+                        color: Colors.white,
+                        size: 20,
                       ),
                     ],
                   ),
@@ -193,7 +185,7 @@ class _DialerScreenState extends State<DialerScreen> {
               ),
             ),
 
-            // Connection Banner
+            // Connection Status Banner
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               width: double.infinity,
@@ -249,26 +241,19 @@ class _DialerScreenState extends State<DialerScreen> {
                   _buildKeyRow(['*', '0', '#'], ['', '+', '']),
                   const SizedBox(height: 24),
 
-                  // Circular Call Buttons Container
+                  // Call Buttons Row
                   Row(
                     mainAxisAlignment: MainAlignment.center,
                     children: [
-                      // SIM 1 Call Button
                       _buildCircularCallButton(
                         simLabel: '1',
-                        onTap: () {
-                          // Trigger SIM 1 call
-                        },
+                        onTap: () {},
                       ),
-
-                      // SIM 2 Call Button (Conditional based on availability)
                       if (isSim2Available) ...[
                         const SizedBox(width: 32),
                         _buildCircularCallButton(
                           simLabel: '2',
-                          onTap: () {
-                            // Trigger SIM 2 call
-                          },
+                          onTap: () {},
                         ),
                       ],
                     ],
@@ -329,7 +314,6 @@ class _DialerScreenState extends State<DialerScreen> {
     );
   }
 
-  // Circular Call Button Widget
   Widget _buildCircularCallButton({
     required String simLabel,
     required VoidCallback onTap,
@@ -341,7 +325,7 @@ class _DialerScreenState extends State<DialerScreen> {
         width: 75,
         height: 75,
         decoration: const BoxDecoration(
-          color: Color(0xFF22C55E), // Green call color
+          color: Color(0xFF22C55E),
           shape: BoxShape.circle,
         ),
         child: Stack(
