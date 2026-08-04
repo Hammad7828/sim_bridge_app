@@ -40,11 +40,11 @@ class _DialerScreenState extends State<DialerScreen> {
   String _statusText = 'Checking Hotspot Connection...';
   Timer? _networkTimer;
 
-  // States received from Android host
+  // States received from Android host (update these via WebSocket payload later)
   String sim1Carrier = "Jazz 4G";
   String sim2Carrier = "Jazz";
   bool isSim1Available = true;
-  bool isSim2Available = true; // Set false to show only 1 call button
+  bool isSim2Available = true; // Set to false to show only 1 circular call button
   int androidBattery = 90;
 
   @override
@@ -84,7 +84,7 @@ class _DialerScreenState extends State<DialerScreen> {
           }
         }
       }
-    } catch (e) {
+    } catch (_) {
       status = 'Disconnected from Android Hotspot';
     }
 
@@ -116,15 +116,15 @@ class _DialerScreenState extends State<DialerScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Header: Carriers & Battery
+            // Top Header: SIM carrier status + Android battery
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
-                mainAxisAlignment: MainAlignment.spaceBetween,
-                crossAxisAlignment: CrossAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (isSim1Available)
                         Row(
@@ -186,8 +186,7 @@ class _DialerScreenState extends State<DialerScreen> {
             ),
 
             // Connection Status Banner
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
+            Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
               color: _isConnected ? Colors.green.shade900 : Colors.red.shade900,
@@ -204,7 +203,7 @@ class _DialerScreenState extends State<DialerScreen> {
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Row(
-                  mainAxisAlignment: MainAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Expanded(
                       child: Text(
@@ -241,19 +240,23 @@ class _DialerScreenState extends State<DialerScreen> {
                   _buildKeyRow(['*', '0', '#'], ['', '+', '']),
                   const SizedBox(height: 24),
 
-                  // Call Buttons Row
+                  // Circular Call Buttons (dynamic based on SIM 2 availability)
                   Row(
-                    mainAxisAlignment: MainAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _buildCircularCallButton(
                         simLabel: '1',
-                        onTap: () {},
+                        onTap: () {
+                          // TODO: send DIAL command for SIM 1
+                        },
                       ),
                       if (isSim2Available) ...[
                         const SizedBox(width: 32),
                         _buildCircularCallButton(
                           simLabel: '2',
-                          onTap: () {},
+                          onTap: () {
+                            // TODO: send DIAL command for SIM 2
+                          },
                         ),
                       ],
                     ],
@@ -270,7 +273,7 @@ class _DialerScreenState extends State<DialerScreen> {
 
   Widget _buildKeyRow(List<String> keys, List<String> subtexts) {
     return Row(
-      mainAxisAlignment: MainAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: List.generate(3, (index) {
         return _buildKeypadButton(keys[index], subtexts[index]);
       }),
@@ -289,7 +292,7 @@ class _DialerScreenState extends State<DialerScreen> {
           shape: BoxShape.circle,
         ),
         child: Column(
-          mainAxisAlignment: MainAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               key,
