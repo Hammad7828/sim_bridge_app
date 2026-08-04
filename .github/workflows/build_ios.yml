@@ -12,12 +12,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -26,20 +20,38 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Configure Unsigned Build Settings
+      - name: Force manual signing with no team
         run: |
-          echo "CODE_SIGNING_ALLOWED=NO" >> ios/Flutter/Release.xcconfig
-          echo "CODE_SIGNING_REQUIRED=NO" >> ios/Flutter/Release.xcconfig
-          echo "CODE_SIGN_IDENTITY=" >> ios/Flutter/Release.xcconfig
+          cd ios
+          PBXPROJ="Runner.xcodeproj/project.pbxproj"
+
+          # Force manual signing style
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBXPROJ"
+
+          # Clear any development team
+          sed -i '' 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/g' "$PBXPROJ"
+
+          # Blank out code sign identity
+          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' "$PBXPROJ"
+
+          echo "----- Verifying patch applied -----"
+          grep -n "CODE_SIGN_STYLE" "$PBXPROJ"
+          grep -n "DEVELOPMENT_TEAM" "$PBXPROJ"
 
       - name: Build Unsigned iOS App
         run: flutter build ios --release --no-codesign
 
-      - name: Package IPA
+      - name: Verify build output exists
+        run: |
+          ls -la build/ios/iphoneos/
+          test -d build/ios/iphoneos/Runner.app
+
+      - name: Package unsigned IPA
         run: |
           mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/
+          cp -r build/ios/iphoneos/Runner.app Payload/Runner.app
           zip -r sim_bridge_app.ipa Payload
+          ls -la sim_bridge_app.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
