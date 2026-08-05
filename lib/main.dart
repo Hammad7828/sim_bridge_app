@@ -45,6 +45,7 @@ class BridgeService extends ChangeNotifier {
   bool isConnected = false;
   String hostIp = '192.168.43.1';
   int port = 8080;
+  String? lastError;
 
   // Device status from Android host
   int androidBattery = 0;
@@ -60,33 +61,36 @@ class BridgeService extends ChangeNotifier {
       hostIp = customIp;
     }
 
+    lastError = null;
     _channel?.sink.close();
 
     try {
       final wsUrl = Uri.parse('ws://$hostIp:$port/callstream');
-      debugPrint('BridgeService.connect() -> attempting $wsUrl');
       _channel = WebSocketChannel.connect(wsUrl);
 
       _channel!.stream.listen(
         (message) {
           if (!isConnected) {
             isConnected = true;
+            lastError = null;
           }
           _handleIncomingPayload(message);
           notifyListeners();
         },
         onDone: () {
           isConnected = false;
+          lastError ??= 'Connection closed (onDone)';
           notifyListeners();
         },
         onError: (error) {
-          debugPrint('BridgeService WebSocket error: $error');
+          lastError = error.toString();
           isConnected = false;
           notifyListeners();
         },
       );
+      notifyListeners();
     } catch (e) {
-      debugPrint('BridgeService.connect() exception: $e');
+      lastError = e.toString();
       isConnected = false;
       notifyListeners();
     }
@@ -386,6 +390,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(color: Colors.white),
                 ),
               ),
+              if (bridge.lastError != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade900,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Last error: ${bridge.lastError}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               const Text(
                 'Infinix Router IP',
@@ -413,7 +432,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: ElevatedButton(
                   onPressed: () {
                     final ip = _ipController.text.trim();
-                    debugPrint('RECONNECT TAPPED - attempting connection to: ws://$ip:${bridge.port}/callstream');
                     bridge.connect(customIp: ip);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Connecting to ws://$ip:${bridge.port}/callstream')),
