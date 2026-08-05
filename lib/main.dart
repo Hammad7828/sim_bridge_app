@@ -1,6 +1,7 @@
-import 'dart:async';
-import 'dart:io';
+
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +28,142 @@ class SimBridgeApp extends StatelessWidget {
   }
 }
 
+class SimInfo {
+  final int slot;
+  final String carrier;
+  final int signalLevel;
+
+  SimInfo({required this.slot, required this.carrier, required this.signalLevel});
+}
+
+/// Manages the WebSocket connection to the Infinix host, live device
+/// status (SIM/battery), and incoming/active call state.
+class BridgeService extends ChangeNotifier {
+  static final BridgeService instance = BridgeService._internal();
+  BridgeService._internal();
+
+  WebSocketChannel? _channel;
+  bool isConnected = false;
+  String hostIp = '192.168.43.1';
+  int port = 8080;
+
+  // Device status from Android host
+  int androidBattery = 0;
+  List<SimInfo> sims = [];
+
+  // Incoming/active call tracking
+  bool isRinging = false;
+  bool isCallActive = false;
+  String currentCallNumber = '';
+
+  void connect({String? customIp}) {
+    if (customIp != null && customIp.isNotEmpty) {
+      hostIp = customIp;
+    }
+
+    _channel?.sink.close();
+
+    try {
+      final wsUrl = Uri.parse('ws://$hostIp:$port/callstream');
+      _channel = WebSocketChannel.connect(wsUrl);
+
+      _channel!.stream.listen(
+        (message) {
+          if (!isConnected) {
+            isConnected = true;
+          }
+          _handleIncomingPayload(message);
+          notifyListeners();
+        },
+        onDone: () {
+          isConnected = false;
+          notifyListeners();
+        },
+        onError: (error) {
+          isConnected = false;
+          notifyListeners();
+        },
+      );
+    } catch (e) {
+      isConnected = false;
+      notifyListeners();
+    }
+  }
+
+  void sendCallCommand(String phoneNumber, int simSlot) {
+    if (_channel != null && isConnected) {
+      final payload = jsonEncode({
+        'action': 'DIAL',
+        'number': phoneNumber,
+        'sim_slot': simSlot,
+      });
+      _channel!.sink.add(payload);
+    }
+  }
+
+  void answerCall() {
+    if (_channel != null && isConnected) {
+      _channel!.sink.add(jsonEncode({'action': 'ANSWER'}));
+    }
+  }
+
+  void hangUpCall() {
+    if (_channel != null && isConnected) {
+      _channel!.sink.add(jsonEncode({'action': 'HANGUP'}));
+    }
+  }
+
+  void _handleIncomingPayload(dynamic payload) {
+    try {
+      final Map<String, dynamic> data = jsonDecode(payload as String);
+
+      if (data['type'] == 'STATUS') {
+        androidBattery = data['battery'] ?? 0;
+        final List<dynamic> simList = data['sims'] ?? [];
+        sims = simList
+            .map((s) => SimInfo(
+                  slot: s['slot'] ?? 1,
+                  carrier: s['carrier'] ?? 'Unknown',
+                  signalLevel: s['signalLevel'] ?? -1,
+                ))
+            .toList()
+          ..sort((a, b) => a.slot.compareTo(b.slot));
+      } else if (data['type'] == 'CALL_STATE') {
+        final String state = data['state'] ?? '';
+        final String number = data['number'] ?? '';
+
+        switch (state) {
+          case 'RINGING':
+            isRinging = true;
+            isCallActive = false;
+            currentCallNumber = number;
+            break;
+          case 'ACTIVE':
+            isRinging = false;
+            isCallActive = true;
+            currentCallNumber = number;
+            break;
+          case 'DISCONNECTED':
+            isRinging = false;
+            isCallActive = false;
+            currentCallNumber = '';
+            break;
+          default:
+            break;
+        }
+      }
+    } catch (e) {
+      // Ignore malformed payloads
+    }
+  }
+
+  void disconnect() {
+    _channel?.sink.close();
+    isConnected = false;
+    notifyListeners();
+  }
+}
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -36,6 +173,79 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 2; // Default to Keypad tab
+
+  @override
+  void initState() {
+    super.initState();
+    BridgeService.instance.connect();
+    BridgeService.instance.addListener(_onBridgeUpdate);
+  }
+
+  @override
+  void dispose() {
+    BridgeService.instance.removeListener(_onBridgeUpdate);
+    super.dispose();
+  }
+
+  void _onBridgeUpdate() {
+    // Show the incoming-call dialog the moment isRinging flips to true.
+    if (BridgeService.instance.isRinging && mounted) {
+      _showIncomingCallDialog();
+    }
+  }
+
+  void _showIncomingCallDialog() {
+    // Avoid stacking multiple dialogs if updates fire more than once.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AnimatedBuilder(
+          animation: BridgeService.instance,
+          builder: (context, _) {
+            // Auto-dismiss if the call ends before being answered/declined.
+            if (!BridgeService.instance.isRinging) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (Navigator.of(dialogContext).canPop()) {
+                  Navigator.of(dialogContext).pop();
+                }
+              });
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1C1C1E),
+              title: const Text(
+                'Incoming Call',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: Text(
+                BridgeService.instance.currentCallNumber,
+                style: const TextStyle(color: Colors.white70, fontSize: 20),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    BridgeService.instance.hangUpCall();
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Decline', style: TextStyle(color: Colors.red)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    BridgeService.instance.answerCall();
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Answer', style: TextStyle(color: Colors.green)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   final List<Widget> _screens = const [
     _PlaceholderTab(title: 'Messages', icon: Icons.chat_bubble_outline),
@@ -137,65 +347,6 @@ class DialerScreen extends StatefulWidget {
 
 class _DialerScreenState extends State<DialerScreen> {
   String _phoneNumber = '';
-  bool _isConnected = false;
-  String _statusText = 'Checking Hotspot Connection...';
-  Timer? _networkTimer;
-
-  // States received from Android host (update these via WebSocket payload later)
-  String sim1Carrier = "Jazz 4G";
-  String sim2Carrier = "Jazz";
-  bool isSim1Available = true;
-  bool isSim2Available = true; // Set to false to show only 1 circular call button
-  int androidBattery = 90;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkConnection();
-    _networkTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _checkConnection();
-    });
-  }
-
-  @override
-  void dispose() {
-    _networkTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _checkConnection() async {
-    bool connected = false;
-    String status = 'Disconnected from Android Hotspot';
-
-    try {
-      final interfaces = await NetworkInterface.list(
-        includeLoopback: false,
-        type: InternetAddressType.IPv4,
-      );
-
-      for (var interface in interfaces) {
-        for (var addr in interface.addresses) {
-          if (!addr.isLoopback &&
-              (addr.address.startsWith('192.168.') ||
-                  addr.address.startsWith('172.20.') ||
-                  addr.address.startsWith('10.'))) {
-            connected = true;
-            status = 'Connected (${addr.address})';
-            break;
-          }
-        }
-      }
-    } catch (_) {
-      status = 'Disconnected from Android Hotspot';
-    }
-
-    if (mounted) {
-      setState(() {
-        _isConnected = connected;
-        _statusText = status;
-      });
-    }
-  }
 
   void _onKeyPress(String value) {
     setState(() {
@@ -211,169 +362,193 @@ class _DialerScreenState extends State<DialerScreen> {
     }
   }
 
+  void _onCall(int simSlot) {
+    if (_phoneNumber.isEmpty) return;
+    BridgeService.instance.sendCallCommand(_phoneNumber, simSlot);
+  }
+
+  IconData _signalIcon(int level) {
+    switch (level) {
+      case 0:
+        return Icons.signal_cellular_0_bar;
+      case 1:
+        return Icons.signal_cellular_alt_1_bar;
+      case 2:
+        return Icons.signal_cellular_alt_2_bar;
+      case 3:
+      case 4:
+        return Icons.signal_cellular_alt;
+      default:
+        return Icons.signal_cellular_null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Top Header: SIM carrier status + Android battery
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
+    return AnimatedBuilder(
+      animation: BridgeService.instance,
+      builder: (context, _) {
+        final bridge = BridgeService.instance;
+        final sims = bridge.sims;
+
+        return Column(
+          children: [
+            // Top Header: real SIM carrier/signal + real battery
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isSim1Available)
-                    Row(
-                      children: [
-                        const Text('1 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                        const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
-                        const SizedBox(width: 4),
-                        Text(
-                          sim1Carrier,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (isSim2Available)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2.0),
-                      child: Row(
-                        children: [
-                          const Text('2 ', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                          const Icon(Icons.signal_cellular_alt, color: Colors.white, size: 14),
-                          const SizedBox(width: 4),
-                          Text(
-                            sim2Carrier,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: sims.isEmpty
+                        ? [
+                            Text(
+                              bridge.isConnected ? 'No SIM data yet' : 'Not connected',
+                              style: const TextStyle(color: Colors.white70, fontSize: 12),
                             ),
-                          ),
-                        ],
+                          ]
+                        : sims.map((sim) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 2.0),
+                              child: Row(
+                                children: [
+                                  Text('${sim.slot} ', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                  Icon(_signalIcon(sim.signalLevel), color: Colors.white, size: 14),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    sim.carrier,
+                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        bridge.isConnected ? '${bridge.androidBattery}%' : '--',
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                       ),
-                    ),
-                ],
-              ),
-              Row(
-                children: [
-                  Text(
-                    '$androidBattery%',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.battery_full,
-                    color: Colors.white,
-                    size: 20,
+                      const SizedBox(width: 4),
+                      const Icon(Icons.battery_full, color: Colors.white, size: 20),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-
-        // Connection Status Banner
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-          color: _isConnected ? Colors.green.shade900 : Colors.red.shade900,
-          child: Text(
-            _statusText,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 11),
-          ),
-        ),
-
-        // Number Display Area
-        Expanded(
-          child: Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Text(
-                    _phoneNumber,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w300,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                if (_phoneNumber.isNotEmpty)
-                  IconButton(
-                    onPressed: _onBackspace,
-                    icon: const Icon(Icons.backspace_outlined, color: Colors.grey),
-                  ),
-              ],
             ),
-          ),
-        ),
 
-        // Keypad
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Column(
-            children: [
-              _buildKeyRow(['1', '2', '3'], ['', 'ABC', 'DEF']),
-              const SizedBox(height: 16),
-              _buildKeyRow(['4', '5', '6'], ['GHI', 'JKL', 'MNO']),
-              const SizedBox(height: 16),
-              _buildKeyRow(['7', '8', '9'], ['PQRS', 'TUV', 'WXYZ']),
-              const SizedBox(height: 16),
-              _buildKeyRow(['*', '0', '#'], ['', '+', '']),
-              const SizedBox(height: 24),
+            // Connection Status Banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+              color: bridge.isConnected ? Colors.green.shade900 : Colors.red.shade900,
+              child: Text(
+                bridge.isConnected ? 'Connected to Infinix host' : 'Disconnected — check Hotspot / IP',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 11),
+              ),
+            ),
 
-              // Circular Call Buttons (dynamic based on SIM 2 availability)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildCircularCallButton(
-                    simLabel: '1',
-                    onTap: () {
-                      // TODO: send DIAL command for SIM 1
-                    },
-                  ),
-                  if (isSim2Available) ...[
-                    const SizedBox(width: 32),
-                    _buildCircularCallButton(
-                      simLabel: '2',
-                      onTap: () {
-                        // TODO: send DIAL command for SIM 2
-                      },
+            // Active call banner (shown while a call is in progress)
+            if (bridge.isCallActive)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                color: Colors.blue.shade900,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'On call: ${bridge.currentCallNumber}',
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                    TextButton(
+                      onPressed: () => bridge.hangUpCall(),
+                      child: const Text('Hang Up', style: TextStyle(color: Colors.red)),
                     ),
                   ],
+                ),
+              ),
+
+            // Number Display Area
+            Expanded(
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _phoneNumber,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w300,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    if (_phoneNumber.isNotEmpty)
+                      IconButton(
+                        onPressed: _onBackspace,
+                        icon: const Icon(Icons.backspace_outlined, color: Colors.grey),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Keypad
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Column(
+                children: [
+                  _buildKeyRow(['1', '2', '3'], ['', 'ABC', 'DEF']),
+                  const SizedBox(height: 16),
+                  _buildKeyRow(['4', '5', '6'], ['GHI', 'JKL', 'MNO']),
+                  const SizedBox(height: 16),
+                  _buildKeyRow(['7', '8', '9'], ['PQRS', 'TUV', 'WXYZ']),
+                  const SizedBox(height: 16),
+                  _buildKeyRow(['*', '0', '#'], ['', '+', '']),
+                  const SizedBox(height: 24),
+
+                  // Dynamic circular call buttons — one per real SIM reported by Infinix
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: sims.isEmpty
+                        ? [
+                            _buildCircularCallButton(simLabel: '1', onTap: () => _onCall(1)),
+                          ]
+                        : sims.asMap().entries.expand((entry) {
+                            final sim = entry.value;
+                            final isLast = entry.key == sims.length - 1;
+                            return [
+                              _buildCircularCallButton(
+                                simLabel: '${sim.slot}',
+                                onTap: () => _onCall(sim.slot),
+                              ),
+                              if (!isLast) const SizedBox(width: 32),
+                            ];
+                          }).toList(),
+                  ),
+                  const SizedBox(height: 30),
                 ],
               ),
-              const SizedBox(height: 30),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildKeyRow(List<String> keys, List<String> subtexts) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: List.generate(3, (index) {
-        return _buildKeypadButton(keys[index], subtexts[index]);
-      }),
+      children: List.generate(3, (index) => _buildKeypadButton(keys[index], subtexts[index])),
     );
   }
 
@@ -384,69 +559,35 @@ class _DialerScreenState extends State<DialerScreen> {
       child: Container(
         width: 75,
         height: 75,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade900,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: Colors.grey.shade900, shape: BoxShape.circle),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              key,
-              style: const TextStyle(
-                fontSize: 28,
-                color: Colors.white,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
+            Text(key, style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.w400)),
             if (subtext.isNotEmpty)
-              Text(
-                subtext,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.grey,
-                  letterSpacing: 1.5,
-                ),
-              ),
+              Text(subtext, style: const TextStyle(fontSize: 10, color: Colors.grey, letterSpacing: 1.5)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCircularCallButton({
-    required String simLabel,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildCircularCallButton({required String simLabel, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(37.5),
       child: Container(
         width: 75,
         height: 75,
-        decoration: const BoxDecoration(
-          color: Color(0xFF22C55E),
-          shape: BoxShape.circle,
-        ),
+        decoration: const BoxDecoration(color: Color(0xFF22C55E), shape: BoxShape.circle),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            const Icon(
-              Icons.phone,
-              color: Colors.white,
-              size: 36,
-            ),
+            const Icon(Icons.phone, color: Colors.white, size: 36),
             Positioned(
               top: 18,
               right: 22,
-              child: Text(
-                simLabel,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: Text(simLabel, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
