@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -36,13 +37,13 @@ class SimInfo {
 }
 
 /// Manages the WebSocket connection to the Infinix host using dart:io's
-/// native WebSocket implementation (web_socket_channel was found to be
-/// incompatible with our Ktor server's handshake on iOS).
+/// native WebSocket implementation with background keep-alive heartbeats.
 class BridgeService extends ChangeNotifier {
   static final BridgeService instance = BridgeService._internal();
   BridgeService._internal();
 
   WebSocket? _socket;
+  Timer? _pingTimer;
   bool isConnected = false;
   String hostIp = '192.168.43.1';
   int port = 8080;
@@ -63,8 +64,7 @@ class BridgeService extends ChangeNotifier {
     }
 
     lastError = null;
-    await _socket?.close();
-    _socket = null;
+    _handleDisconnect();
 
     try {
       final wsUrl = 'ws://$hostIp:$port/callstream';
@@ -74,27 +74,51 @@ class BridgeService extends ChangeNotifier {
       lastError = null;
       notifyListeners();
 
+      // Start periodic 5-second ping heartbeat to prevent iOS background socket suspension
+      _startHeartbeat();
+
       socket.listen(
         (message) {
           _handleIncomingPayload(message);
           notifyListeners();
         },
         onDone: () {
-          isConnected = false;
+          _handleDisconnect();
           lastError ??= 'Connection closed';
           notifyListeners();
         },
         onError: (error) {
           lastError = error.toString();
-          isConnected = false;
+          _handleDisconnect();
           notifyListeners();
         },
       );
     } catch (e) {
       lastError = e.toString();
-      isConnected = false;
+      _handleDisconnect();
       notifyListeners();
     }
+  }
+
+  void _startHeartbeat() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_socket != null && isConnected) {
+        try {
+          _socket!.add(jsonEncode({'action': 'PING'}));
+        } catch (_) {
+          _handleDisconnect();
+        }
+      }
+    });
+  }
+
+  void _handleDisconnect() {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _socket?.close();
+    _socket = null;
+    isConnected = false;
   }
 
   void sendCallCommand(String phoneNumber, int simSlot) {
@@ -122,7 +146,12 @@ class BridgeService extends ChangeNotifier {
 
   void _handleIncomingPayload(dynamic payload) {
     try {
-      final Map<String, dynamic> data = jsonDecode(payload as String);
+      final Map<String, dynamic> data = jsonEncodePayload(payload);
+
+      // Suppress Heartbeat Ping/Pong responses from updating call/status UI
+      if (data['type'] == 'PONG' || data['status'] == 'PONG_ACK' || data['action'] == 'PING') {
+        return;
+      }
 
       if (data['type'] == 'STATUS') {
         androidBattery = data['battery'] ?? 0;
@@ -164,10 +193,12 @@ class BridgeService extends ChangeNotifier {
     }
   }
 
+  Map<String, dynamic> jsonEncodePayload(dynamic payload) {
+    return jsonDecode(payload as String) as Map<String, dynamic>;
+  }
+
   Future<void> disconnect() async {
-    await _socket?.close();
-    _socket = null;
-    isConnected = false;
+    _handleDisconnect();
     notifyListeners();
   }
 }

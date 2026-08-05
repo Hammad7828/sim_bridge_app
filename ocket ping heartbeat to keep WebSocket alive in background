@@ -1,0 +1,122 @@
+[1mdiff --git a/lib/main.dart b/lib/main.dart[m
+[1mindex e7f6801..23c8315 100644[m
+[1m--- a/lib/main.dart[m
+[1m+++ b/lib/main.dart[m
+[36m@@ -1,3 +1,4 @@[m
+[32m+[m[32mimport 'dart:async';[m
+ import 'dart:convert';[m
+ import 'dart:io';[m
+ import 'package:flutter/material.dart';[m
+[36m@@ -36,13 +37,13 @@[m [mclass SimInfo {[m
+ }[m
+ [m
+ /// Manages the WebSocket connection to the Infinix host using dart:io's[m
+[31m-/// native WebSocket implementation (web_socket_channel was found to be[m
+[31m-/// incompatible with our Ktor server's handshake on iOS).[m
+[32m+[m[32m/// native WebSocket implementation with background keep-alive heartbeats.[m
+ class BridgeService extends ChangeNotifier {[m
+   static final BridgeService instance = BridgeService._internal();[m
+   BridgeService._internal();[m
+ [m
+   WebSocket? _socket;[m
+[32m+[m[32m  Timer? _pingTimer;[m
+   bool isConnected = false;[m
+   String hostIp = '192.168.43.1';[m
+   int port = 8080;[m
+[36m@@ -63,8 +64,7 @@[m [mclass BridgeService extends ChangeNotifier {[m
+     }[m
+ [m
+     lastError = null;[m
+[31m-    await _socket?.close();[m
+[31m-    _socket = null;[m
+[32m+[m[32m    _handleDisconnect();[m
+ [m
+     try {[m
+       final wsUrl = 'ws://$hostIp:$port/callstream';[m
+[36m@@ -74,29 +74,53 @@[m [mclass BridgeService extends ChangeNotifier {[m
+       lastError = null;[m
+       notifyListeners();[m
+ [m
+[32m+[m[32m      // Start periodic 5-second ping heartbeat to prevent iOS background socket suspension[m
+[32m+[m[32m      _startHeartbeat();[m
+[32m+[m
+       socket.listen([m
+         (message) {[m
+           _handleIncomingPayload(message);[m
+           notifyListeners();[m
+         },[m
+         onDone: () {[m
+[31m-          isConnected = false;[m
+[32m+[m[32m          _handleDisconnect();[m
+           lastError ??= 'Connection closed';[m
+           notifyListeners();[m
+         },[m
+         onError: (error) {[m
+           lastError = error.toString();[m
+[31m-          isConnected = false;[m
+[32m+[m[32m          _handleDisconnect();[m
+           notifyListeners();[m
+         },[m
+       );[m
+     } catch (e) {[m
+       lastError = e.toString();[m
+[31m-      isConnected = false;[m
+[32m+[m[32m      _handleDisconnect();[m
+       notifyListeners();[m
+     }[m
+   }[m
+ [m
+[32m+[m[32m  void _startHeartbeat() {[m
+[32m+[m[32m    _pingTimer?.cancel();[m
+[32m+[m[32m    _pingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {[m
+[32m+[m[32m      if (_socket != null && isConnected) {[m
+[32m+[m[32m        try {[m
+[32m+[m[32m          _socket!.add(jsonEncode({'action': 'PING'}));[m
+[32m+[m[32m        } catch (_) {[m
+[32m+[m[32m          _handleDisconnect();[m
+[32m+[m[32m        }[m
+[32m+[m[32m      }[m
+[32m+[m[32m    });[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  void _handleDisconnect() {[m
+[32m+[m[32m    _pingTimer?.cancel();[m
+[32m+[m[32m    _pingTimer = null;[m
+[32m+[m[32m    _socket?.close();[m
+[32m+[m[32m    _socket = null;[m
+[32m+[m[32m    isConnected = false;[m
+[32m+[m[32m  }[m
+[32m+[m
+   void sendCallCommand(String phoneNumber, int simSlot) {[m
+     if (_socket != null && isConnected) {[m
+       final payload = jsonEncode({[m
+[36m@@ -122,7 +146,12 @@[m [mclass BridgeService extends ChangeNotifier {[m
+ [m
+   void _handleIncomingPayload(dynamic payload) {[m
+     try {[m
+[31m-      final Map<String, dynamic> data = jsonDecode(payload as String);[m
+[32m+[m[32m      final Map<String, dynamic> data = jsonEncodePayload(payload);[m
+[32m+[m
+[32m+[m[32m      // Suppress Heartbeat Ping/Pong responses from updating call/status UI[m
+[32m+[m[32m      if (data['type'] == 'PONG' || data['status'] == 'PONG_ACK' || data['action'] == 'PING') {[m
+[32m+[m[32m        return;[m
+[32m+[m[32m      }[m
+ [m
+       if (data['type'] == 'STATUS') {[m
+         androidBattery = data['battery'] ?? 0;[m
+[36m@@ -164,10 +193,12 @@[m [mclass BridgeService extends ChangeNotifier {[m
+     }[m
+   }[m
+ [m
+[32m+[m[32m  Map<String, dynamic> jsonEncodePayload(dynamic payload) {[m
+[32m+[m[32m    return jsonDecode(payload as String) as Map<String, dynamic>;[m
+[32m+[m[32m  }[m
+[32m+[m
+   Future<void> disconnect() async {[m
+[31m-    await _socket?.close();[m
+[31m-    _socket = null;[m
+[31m-    isConnected = false;[m
+[32m+[m[32m    _handleDisconnect();[m
+     notifyListeners();[m
+   }[m
+ }[m
