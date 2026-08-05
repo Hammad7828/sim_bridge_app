@@ -37,13 +37,15 @@ class SimInfo {
 }
 
 /// Manages the WebSocket connection to the Infinix host using dart:io's
-/// native WebSocket implementation with background keep-alive heartbeats.
+/// native WebSocket implementation with background keep-alive heartbeats
+/// and automatic background reconnection loops.
 class BridgeService extends ChangeNotifier {
   static final BridgeService instance = BridgeService._internal();
   BridgeService._internal();
 
   WebSocket? _socket;
   Timer? _pingTimer;
+  Timer? _reconnectTimer;
   bool isConnected = false;
   String hostIp = '192.168.43.1';
   int port = 8080;
@@ -64,7 +66,12 @@ class BridgeService extends ChangeNotifier {
     }
 
     lastError = null;
-    _handleDisconnect();
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    await _socket?.close();
+    _socket = null;
 
     try {
       final wsUrl = 'ws://$hostIp:$port/callstream';
@@ -83,20 +90,17 @@ class BridgeService extends ChangeNotifier {
           notifyListeners();
         },
         onDone: () {
-          _handleDisconnect();
           lastError ??= 'Connection closed';
-          notifyListeners();
+          _handleDisconnect();
         },
         onError: (error) {
           lastError = error.toString();
           _handleDisconnect();
-          notifyListeners();
         },
       );
     } catch (e) {
       lastError = e.toString();
       _handleDisconnect();
-      notifyListeners();
     }
   }
 
@@ -119,6 +123,15 @@ class BridgeService extends ChangeNotifier {
     _socket?.close();
     _socket = null;
     isConnected = false;
+    notifyListeners();
+
+    // Auto-reconnect loop: attempt to reconnect every 3 seconds
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (!isConnected) {
+        connect(customIp: hostIp);
+      }
+    });
   }
 
   void sendCallCommand(String phoneNumber, int simSlot) {
@@ -198,8 +211,9 @@ class BridgeService extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _handleDisconnect();
-    notifyListeners();
   }
 }
 
