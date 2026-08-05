@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:http/http.dart' as http;
@@ -102,7 +103,7 @@ class BridgeService extends ChangeNotifier {
   /// over plain networking at all, separate from WebSocket handshake logic.
   Future<void> testHttp({String? customIp}) async {
     final ip = customIp != null && customIp.isNotEmpty ? customIp : hostIp;
-    lastHttpTestResult = 'Testing http://$ip:$port/ ...';
+    lastHttpTestResult = 'Testing http://$ip:$port/callstream ...';
     notifyListeners();
 
     try {
@@ -112,6 +113,25 @@ class BridgeService extends ChangeNotifier {
       lastHttpTestResult = 'HTTP OK — status ${response.statusCode}, body length ${response.body.length}';
     } catch (e) {
       lastHttpTestResult = 'HTTP FAILED — $e';
+    }
+    notifyListeners();
+  }
+
+  /// Raw dart:io WebSocket test — uses a completely different WebSocket
+  /// implementation than web_socket_channel, to isolate whether the
+  /// failure is package-specific or a genuine server-side handshake issue.
+  Future<void> testRawWebSocket({String? customIp}) async {
+    final ip = customIp != null && customIp.isNotEmpty ? customIp : hostIp;
+    lastHttpTestResult = 'Testing raw dart:io WebSocket to ws://$ip:$port/callstream ...';
+    notifyListeners();
+
+    try {
+      final socket = await WebSocket.connect('ws://$ip:$port/callstream')
+          .timeout(const Duration(seconds: 8));
+      lastHttpTestResult = 'RAW WEBSOCKET CONNECTED! Protocol: ${socket.protocol}';
+      await socket.close();
+    } catch (e) {
+      lastHttpTestResult = 'RAW WEBSOCKET FAILED — ${e.runtimeType}: $e';
     }
     notifyListeners();
   }
@@ -492,6 +512,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                   child: const Text('Test HTTP (isolate the problem)'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final ip = _ipController.text.trim();
+                    bridge.testRawWebSocket(customIp: ip);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Test Raw dart:io WebSocket'),
                 ),
               ),
               const SizedBox(height: 8),
