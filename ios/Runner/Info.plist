@@ -70,5 +70,14 @@
     <string>Location permission is required to identify the connected Android Hotspot network name.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Location permission is required to identify the connected Android Hotspot network name.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>This app connects to your Infinix device over the local Wi-Fi hotspot to bridge calls.</string>
 </dict>
 </plist>
