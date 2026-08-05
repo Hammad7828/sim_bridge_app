@@ -64,6 +64,7 @@ class BridgeService extends ChangeNotifier {
 
     try {
       final wsUrl = Uri.parse('ws://$hostIp:$port/callstream');
+      debugPrint('BridgeService.connect() -> attempting $wsUrl');
       _channel = WebSocketChannel.connect(wsUrl);
 
       _channel!.stream.listen(
@@ -79,11 +80,13 @@ class BridgeService extends ChangeNotifier {
           notifyListeners();
         },
         onError: (error) {
+          debugPrint('BridgeService WebSocket error: $error');
           isConnected = false;
           notifyListeners();
         },
       );
     } catch (e) {
+      debugPrint('BridgeService.connect() exception: $e');
       isConnected = false;
       notifyListeners();
     }
@@ -409,7 +412,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    bridge.connect(customIp: _ipController.text.trim());
+                    final ip = _ipController.text.trim();
+                    debugPrint('RECONNECT TAPPED - attempting connection to: ws://$ip:${bridge.port}/callstream');
+                    bridge.connect(customIp: ip);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Connecting to ws://$ip:${bridge.port}/callstream')),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
