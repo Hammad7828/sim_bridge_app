@@ -12,21 +12,26 @@ import AVFoundation
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     
-    // Enable background audio session to keep socket CPU thread active
+    // Activate VoIP/Call audio category so iOS keeps the CPU awake in background
+    setupAudioSession()
+
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func setupAudioSession() {
     do {
-      try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .mixWithOthers])
-      try AVAudioSession.sharedInstance().setActive(true)
+      let audioSession = AVAudioSession.sharedInstance()
+      try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .mixWithOthers, .defaultToSpeaker])
+      try audioSession.setActive(true)
     } catch {
       print("Failed to set AVAudioSession category: \(error)")
     }
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {
     super.applicationDidEnterBackground(application)
     
-    // Request extended background runtime from iOS
+    // Request extended background processing time from iOS
     self.backgroundTaskID = application.beginBackgroundTask(withName: "InfinixHotspotKeepAlive") {
       application.endBackgroundTask(self.backgroundTaskID)
       self.backgroundTaskID = .invalid
