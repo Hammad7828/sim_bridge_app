@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:http/http.dart' as http;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,18 +35,18 @@ class SimInfo {
   SimInfo({required this.slot, required this.carrier, required this.signalLevel});
 }
 
-/// Manages the WebSocket connection to the Infinix host, live device
-/// status (SIM/battery), and incoming/active call state.
+/// Manages the WebSocket connection to the Infinix host using dart:io's
+/// native WebSocket implementation (web_socket_channel was found to be
+/// incompatible with our Ktor server's handshake on iOS).
 class BridgeService extends ChangeNotifier {
   static final BridgeService instance = BridgeService._internal();
   BridgeService._internal();
 
-  WebSocketChannel? _channel;
+  WebSocket? _socket;
   bool isConnected = false;
   String hostIp = '192.168.43.1';
   int port = 8080;
   String? lastError;
-  String? lastHttpTestResult;
 
   // Device status from Android host
   int androidBattery = 0;
@@ -59,30 +57,31 @@ class BridgeService extends ChangeNotifier {
   bool isCallActive = false;
   String currentCallNumber = '';
 
-  void connect({String? customIp}) {
+  Future<void> connect({String? customIp}) async {
     if (customIp != null && customIp.isNotEmpty) {
       hostIp = customIp;
     }
 
     lastError = null;
-    _channel?.sink.close();
+    await _socket?.close();
+    _socket = null;
 
     try {
-      final wsUrl = Uri.parse('ws://$hostIp:$port/callstream');
-      _channel = WebSocketChannel.connect(wsUrl);
+      final wsUrl = 'ws://$hostIp:$port/callstream';
+      final socket = await WebSocket.connect(wsUrl).timeout(const Duration(seconds: 8));
+      _socket = socket;
+      isConnected = true;
+      lastError = null;
+      notifyListeners();
 
-      _channel!.stream.listen(
+      socket.listen(
         (message) {
-          if (!isConnected) {
-            isConnected = true;
-            lastError = null;
-          }
           _handleIncomingPayload(message);
           notifyListeners();
         },
         onDone: () {
           isConnected = false;
-          lastError ??= 'Connection closed (onDone)';
+          lastError ??= 'Connection closed';
           notifyListeners();
         },
         onError: (error) {
@@ -91,7 +90,6 @@ class BridgeService extends ChangeNotifier {
           notifyListeners();
         },
       );
-      notifyListeners();
     } catch (e) {
       lastError = e.toString();
       isConnected = false;
@@ -99,63 +97,26 @@ class BridgeService extends ChangeNotifier {
     }
   }
 
-  /// Raw HTTP test — isolates whether the app can reach the Infinix
-  /// over plain networking at all, separate from WebSocket handshake logic.
-  Future<void> testHttp({String? customIp}) async {
-    final ip = customIp != null && customIp.isNotEmpty ? customIp : hostIp;
-    lastHttpTestResult = 'Testing http://$ip:$port/callstream ...';
-    notifyListeners();
-
-    try {
-      final response = await http
-          .get(Uri.parse('http://$ip:$port/callstream'))
-          .timeout(const Duration(seconds: 6));
-      lastHttpTestResult = 'HTTP OK — status ${response.statusCode}, body length ${response.body.length}';
-    } catch (e) {
-      lastHttpTestResult = 'HTTP FAILED — $e';
-    }
-    notifyListeners();
-  }
-
-  /// Raw dart:io WebSocket test — uses a completely different WebSocket
-  /// implementation than web_socket_channel, to isolate whether the
-  /// failure is package-specific or a genuine server-side handshake issue.
-  Future<void> testRawWebSocket({String? customIp}) async {
-    final ip = customIp != null && customIp.isNotEmpty ? customIp : hostIp;
-    lastHttpTestResult = 'Testing raw dart:io WebSocket to ws://$ip:$port/callstream ...';
-    notifyListeners();
-
-    try {
-      final socket = await WebSocket.connect('ws://$ip:$port/callstream')
-          .timeout(const Duration(seconds: 8));
-      lastHttpTestResult = 'RAW WEBSOCKET CONNECTED! Protocol: ${socket.protocol}';
-      await socket.close();
-    } catch (e) {
-      lastHttpTestResult = 'RAW WEBSOCKET FAILED — ${e.runtimeType}: $e';
-    }
-    notifyListeners();
-  }
-
   void sendCallCommand(String phoneNumber, int simSlot) {
-    if (_channel != null && isConnected) {
+    if (_socket != null && isConnected) {
       final payload = jsonEncode({
         'action': 'DIAL',
         'number': phoneNumber,
         'sim_slot': simSlot,
       });
-      _channel!.sink.add(payload);
+      _socket!.add(payload);
     }
   }
 
   void answerCall() {
-    if (_channel != null && isConnected) {
-      _channel!.sink.add(jsonEncode({'action': 'ANSWER'}));
+    if (_socket != null && isConnected) {
+      _socket!.add(jsonEncode({'action': 'ANSWER'}));
     }
   }
 
   void hangUpCall() {
-    if (_channel != null && isConnected) {
-      _channel!.sink.add(jsonEncode({'action': 'HANGUP'}));
+    if (_socket != null && isConnected) {
+      _socket!.add(jsonEncode({'action': 'HANGUP'}));
     }
   }
 
@@ -203,8 +164,9 @@ class BridgeService extends ChangeNotifier {
     }
   }
 
-  void disconnect() {
-    _channel?.sink.close();
+  Future<void> disconnect() async {
+    await _socket?.close();
+    _socket = null;
     isConnected = false;
     notifyListeners();
   }
@@ -445,21 +407,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
-              if (bridge.lastHttpTestResult != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.shade900,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    bridge.lastHttpTestResult!,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ],
               const SizedBox(height: 20),
               const Text(
                 'Infinix Router IP',
@@ -496,37 +443,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     backgroundColor: Colors.blue,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  child: const Text('Reconnect (WebSocket)'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final ip = _ipController.text.trim();
-                    bridge.testHttp(customIp: ip);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Test HTTP (isolate the problem)'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final ip = _ipController.text.trim();
-                    bridge.testRawWebSocket(customIp: ip);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Test Raw dart:io WebSocket'),
+                  child: const Text('Reconnect'),
                 ),
               ),
               const SizedBox(height: 8),
