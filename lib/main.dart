@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -188,14 +187,12 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onBridgeUpdate() {
-    // Show the incoming-call dialog the moment isRinging flips to true.
     if (BridgeService.instance.isRinging && mounted) {
       _showIncomingCallDialog();
     }
   }
 
   void _showIncomingCallDialog() {
-    // Avoid stacking multiple dialogs if updates fire more than once.
     if (ModalRoute.of(context)?.isCurrent != true) return;
 
     showDialog(
@@ -205,7 +202,6 @@ class _MainShellState extends State<MainShell> {
         return AnimatedBuilder(
           animation: BridgeService.instance,
           builder: (context, _) {
-            // Auto-dismiss if the call ends before being answered/declined.
             if (!BridgeService.instance.isRinging) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (Navigator.of(dialogContext).canPop()) {
@@ -252,7 +248,7 @@ class _MainShellState extends State<MainShell> {
     _PlaceholderTab(title: 'Recents', icon: Icons.access_time),
     DialerScreen(),
     _PlaceholderTab(title: 'Contacts', icon: Icons.person_outline),
-    _PlaceholderTab(title: 'More', icon: Icons.more_horiz),
+    SettingsScreen(),
   ];
 
   @override
@@ -296,8 +292,8 @@ class _MainShellState extends State<MainShell> {
             label: 'Contacts',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.more_horiz),
-            label: 'More',
+            icon: Icon(Icons.settings),
+            label: 'Settings',
           ),
         ],
       ),
@@ -334,6 +330,103 @@ class _PlaceholderTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late final TextEditingController _ipController;
+
+  @override
+  void initState() {
+    super.initState();
+    _ipController = TextEditingController(text: BridgeService.instance.hostIp);
+  }
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: BridgeService.instance,
+      builder: (context, _) {
+        final bridge = BridgeService.instance;
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Bridge Settings',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: Colors.white),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: bridge.isConnected ? Colors.green.shade900 : Colors.red.shade900,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  bridge.isConnected ? 'Connected to ${bridge.hostIp}' : 'Not connected',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Infinix Router IP',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _ipController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: '192.168.43.91',
+                  hintStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: Colors.grey.shade900,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    bridge.connect(customIp: _ipController.text.trim());
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Reconnect'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tip: On iPhone, go to Settings > Wi-Fi > (i) next to the Infinix hotspot to find the Router IP.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -393,7 +486,6 @@ class _DialerScreenState extends State<DialerScreen> {
 
         return Column(
           children: [
-            // Top Header: real SIM carrier/signal + real battery
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
@@ -439,8 +531,6 @@ class _DialerScreenState extends State<DialerScreen> {
                 ],
               ),
             ),
-
-            // Connection Status Banner
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
@@ -451,8 +541,6 @@ class _DialerScreenState extends State<DialerScreen> {
                 style: const TextStyle(color: Colors.white, fontSize: 11),
               ),
             ),
-
-            // Active call banner (shown while a call is in progress)
             if (bridge.isCallActive)
               Container(
                 width: double.infinity,
@@ -472,8 +560,6 @@ class _DialerScreenState extends State<DialerScreen> {
                   ],
                 ),
               ),
-
-            // Number Display Area
             Expanded(
               child: Container(
                 alignment: Alignment.center,
@@ -501,8 +587,6 @@ class _DialerScreenState extends State<DialerScreen> {
                 ),
               ),
             ),
-
-            // Keypad
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
               child: Column(
@@ -515,8 +599,6 @@ class _DialerScreenState extends State<DialerScreen> {
                   const SizedBox(height: 16),
                   _buildKeyRow(['*', '0', '#'], ['', '+', '']),
                   const SizedBox(height: 24),
-
-                  // Dynamic circular call buttons — one per real SIM reported by Infinix
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: sims.isEmpty
