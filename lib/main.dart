@@ -107,7 +107,7 @@ class BridgeService extends ChangeNotifier {
 
     try {
       final response = await http
-          .get(Uri.parse('http://$ip:$port/'))
+          .get(Uri.parse('http://$ip:$port/callstream'))
           .timeout(const Duration(seconds: 6));
       lastHttpTestResult = 'HTTP OK — status ${response.statusCode}, body length ${response.body.length}';
     } catch (e) {
