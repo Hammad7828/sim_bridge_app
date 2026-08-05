@@ -79,5 +79,10 @@
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>This app connects to your Infinix device over the local Wi-Fi hotspot to bridge calls.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>voip</string>
+        <string>fetch</string>
+    </array>
 </dict>
 </plist>
