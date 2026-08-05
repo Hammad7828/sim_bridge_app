@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,7 @@ class BridgeService extends ChangeNotifier {
   String hostIp = '192.168.43.1';
   int port = 8080;
   String? lastError;
+  String? lastHttpTestResult;
 
   // Device status from Android host
   int androidBattery = 0;
@@ -94,6 +96,24 @@ class BridgeService extends ChangeNotifier {
       isConnected = false;
       notifyListeners();
     }
+  }
+
+  /// Raw HTTP test — isolates whether the app can reach the Infinix
+  /// over plain networking at all, separate from WebSocket handshake logic.
+  Future<void> testHttp({String? customIp}) async {
+    final ip = customIp != null && customIp.isNotEmpty ? customIp : hostIp;
+    lastHttpTestResult = 'Testing http://$ip:$port/ ...';
+    notifyListeners();
+
+    try {
+      final response = await http
+          .get(Uri.parse('http://$ip:$port/'))
+          .timeout(const Duration(seconds: 6));
+      lastHttpTestResult = 'HTTP OK — status ${response.statusCode}, body length ${response.body.length}';
+    } catch (e) {
+      lastHttpTestResult = 'HTTP FAILED — $e';
+    }
+    notifyListeners();
   }
 
   void sendCallCommand(String phoneNumber, int simSlot) {
@@ -369,7 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       animation: BridgeService.instance,
       builder: (context, _) {
         final bridge = BridgeService.instance;
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -401,6 +421,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Text(
                     'Last error: ${bridge.lastError}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ],
+              if (bridge.lastHttpTestResult != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade900,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    bridge.lastHttpTestResult!,
                     style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
@@ -441,7 +476,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     backgroundColor: Colors.blue,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  child: const Text('Reconnect'),
+                  child: const Text('Reconnect (WebSocket)'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final ip = _ipController.text.trim();
+                    bridge.testHttp(customIp: ip);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Test HTTP (isolate the problem)'),
                 ),
               ),
               const SizedBox(height: 8),
